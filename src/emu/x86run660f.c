@@ -219,16 +219,20 @@ void Run660F(x86emu_t *emu)
         GX.d[0] = EM->sd[0];
         GX.d[1] = EM->sd[1];
         break;
-
-
+    case 0x2B:                      /* MOVNTPD Ex, Gx */
+        nextop = F8;
+        GET_EX;
+        EX->q[0] = GX.q[0]; // Address needs to ba aligned for MOVNTPD
+        EX->q[1] = GX.q[1];
+        break;
     case 0x2C:                      /* CVTTPD2PI Gm, Ex */
         nextop = F8;
         GET_EX;
-        if(isnan(EX->d[0]) || isinf(EX->d[0]) || EX->d[0]>0x7fffffff)
+        if(!isfinite(EX->d[0]) || EX->d[0]>(double)0x7fffffff || EX->d[0]<-(double)0x80000000U)
             GM.ud[0] = 0x80000000;
         else
             GM.sd[0] = EX->d[0];
-        if(isnan(EX->d[1]) || isinf(EX->d[1]) || EX->d[1]>0x7fffffff)
+        if(!isfinite(EX->d[1]) || EX->d[1]>(double)0x7fffffff || EX->d[1]<-(double)0x80000000U)
             GM.ud[1] = 0x80000000;
         else
             GM.sd[1] = EX->d[1];
@@ -237,7 +241,7 @@ void Run660F(x86emu_t *emu)
         nextop = F8;
         GET_EX;
         for(int i=0; i<2; ++i)
-            if(isnan(EX->d[i]) || isinf(EX->d[i]) || EX->d[i]>0x7fffffff)
+            if(!isfinite(EX->d[i]) || EX->d[i]>(double)0x7fffffff || EX->d[i]<-(double)0x80000000U)
                 GM.ud[i] = 0x80000000;
             else
                 switch(emu->mxcsr.f.MXCSR_RC) {
@@ -347,7 +351,34 @@ void Run660F(x86emu_t *emu)
                         GX.sw[4+i] = EX->sw[i*2+0] - EX->sw[i*2+1];
                 }
                 break;
-                
+            case 0x06:  /* PHSUBD Gx, Ex */
+                nextop = F8;
+                GET_EX;
+                for (int i=0; i<2; ++i)
+                    GX.sd[i] = GX.sd[i*2+0] - GX.sd[i*2+1];
+                if(&GX == EX) {
+                    GX.q[1] = GX.q[0];
+                } else {
+                    for (int i=0; i<2; ++i)
+                        GX.sd[2+i] = EX->sd[i*2+0] - EX->sd[i*2+1];
+                }
+                break;
+            case 0x07:  /* PHSUBSW Gx, Ex */
+                nextop = F8;
+                GET_EX;
+                for (int i=0; i<4; ++i) {
+                    tmp32s = GX.sw[i*2+0]-GX.sw[i*2+1];
+                    GX.sw[i] = (tmp32s<-32768)?-32768:((tmp32s>32767)?32767:tmp32s);
+                }
+                if(&GX == EX) {
+                    GX.q[1] = GX.q[0];
+                } else {
+                    for (int i=0; i<4; ++i) {
+                        tmp32s = EX->sw[i*2+0] - EX->sw[i*2+1];
+                        GX.sw[4+i] = (tmp32s<-32768)?-32768:((tmp32s>32767)?32767:tmp32s);
+                    }
+                }
+                break;
             case 0x08:  /* PSIGNB Gx, Ex */
                 nextop = F8;
                 GET_EX;
@@ -782,23 +813,24 @@ void Run660F(x86emu_t *emu)
         nextop = F8;
         GET_EX;
         for(int i=0; i<4; ++i)
-            if(isnanf(EX->f[i]) || isinff(EX->f[i]) || EX->f[i]>0x7fffffff)
+            // note, converting 0x7fffffff to float gives 0x80000000 basicaly, because of the loss or precision in the mantice. So uing >= here...
+            if(isnanf(EX->f[i]) || isinff(EX->f[i]) || EX->f[i]>=(float)0x80000000U || EX->f[i]<-(float)0x80000000U)
                 GX.sd[i] = 0x80000000;
-        else
-            switch(emu->mxcsr.f.MXCSR_RC) {
-                case ROUND_Nearest:
-                    GX.sd[i] = nearbyintf(EX->f[i]);
-                    break;
-                case ROUND_Down:
-                    GX.sd[i] = floorf(EX->f[i]);
-                    break;
-                case ROUND_Up:
-                    GX.sd[i] = ceilf(EX->f[i]);
-                    break;
-                case ROUND_Chop:
-                    GX.sd[i] = EX->f[i];
-                    break;
-            }
+            else
+                switch(emu->mxcsr.f.MXCSR_RC) {
+                    case ROUND_Nearest:
+                        GX.sd[i] = nearbyintf(EX->f[i]);
+                        break;
+                    case ROUND_Down:
+                        GX.sd[i] = floorf(EX->f[i]);
+                        break;
+                    case ROUND_Up:
+                        GX.sd[i] = ceilf(EX->f[i]);
+                        break;
+                    case ROUND_Chop:
+                        GX.sd[i] = EX->f[i];
+                        break;
+                }
         break;
     case 0x5C:                      /* SUBPD Gx, Ex */
         nextop = F8;
@@ -1617,11 +1649,11 @@ void Run660F(x86emu_t *emu)
     case 0xE6:  /* CVTTPD2DQ Gx, Ex */
         nextop = F8;
         GET_EX;
-        if(isnan(EX->d[0]) || isinf(EX->d[0]) || EX->d[0]>0x7fffffff)
+        if(isnan(EX->d[0]) || isinf(EX->d[0]) || EX->d[0]>(double)0x7fffffff || EX->d[0]<-(double)0x80000000U)
             GX.sd[0] = 0x80000000;
         else
             GX.sd[0] = EX->d[0];
-        if(isnan(EX->d[1]) || isinf(EX->d[1]) || EX->d[1]>0x7fffffff)
+        if(isnan(EX->d[1]) || isinf(EX->d[1]) || EX->d[1]>(double)0x7fffffff || EX->d[1]<-(double)0x80000000U)
             GX.sd[1] = 0x80000000;
         else
             GX.sd[1] = EX->d[1];

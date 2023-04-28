@@ -182,11 +182,11 @@
         _0f_0x2C:                      /* CVTTPS2PI Gm, Ex */
             nextop = F8;
             GET_EX;
-            if(isnanf(EX->f[1]) || isinff(EX->f[1]) || EX->f[1]>0x7fffffff)
+            if(isnanf(EX->f[1]) || isinff(EX->f[1]) || EX->f[1]>=(float)0x80000000U || EX->f[1]<-(float)0x80000000U)
                 GM.sd[1] = 0x80000000;
             else
                 GM.sd[1] = EX->f[1];
-            if(isnanf(EX->f[0]) || isinff(EX->f[0]) || EX->f[0]>0x7fffffff)
+            if(isnanf(EX->f[0]) || isinff(EX->f[0]) || EX->f[0]>=(float)0x80000000U || EX->f[1]<-(float)0x80000000U)
                 GM.sd[0] = 0x80000000;
             else
                 GM.sd[0] = EX->f[0];
@@ -196,7 +196,7 @@
             nextop = F8;
             GET_EX;
             for(int i=1; i>=0; --i)
-                if(isnanf(EX->f[i]) || isinff(EX->f[i]) || EX->f[i]>0x7fffffff)
+                if(isnanf(EX->f[i]) || isinff(EX->f[i]) || EX->f[i]>=(float)0x80000000U || EX->f[i]<-(float)0x80000000U)
                     GM.sd[i] = 0x80000000;
                 else
                     switch(emu->mxcsr.f.MXCSR_RC) {
@@ -252,12 +252,97 @@
                             GM.ub[i] = eam1.ub[EM->ub[i]&7];
                     }
                     break;
+                case 0x01:  /* PHADDW Gm, Em */
+                    nextop = F8;
+                    GET_EM;
+                    for (int i=0; i<2; ++i)
+                        GM.sw[i] = GM.sw[i*2+0]+GM.sw[i*2+1];
+                    if(&GM == EM) {
+                        GM.ud[1] = GM.ud[0];
+                    } else {
+                        for (int i=0; i<2; ++i)
+                            GM.sw[2+i] = EM->sw[i*2+0] + EM->sw[i*2+1];
+                    }
+                    break;
+                case 0x02:  /* PHADDD Gm, Em */
+                    nextop = F8;
+                    GET_EM;
+                    GM.sd[0] = GM.sd[0]+GM.sd[1];
+                    if(&GM == EM)
+                        GM.ud[1] = GM.ud[0];
+                    else
+                        GM.sd[1] = EM->sd[0] + EM->sd[1];
+                    break;
+                case 0x03:  /* PHADDSW Gm, Em */
+                    nextop = F8;
+                    GET_EM;
+                    for (int i=0; i<2; ++i) {
+                        tmp32s = GM.sw[i*2+0]+GM.sw[i*2+1];
+                        GM.sw[i] = (tmp32s>32767)?32767:((tmp32s<-32768)?-32768:tmp32s);
+                    }
+                    if(&GM == EM) {
+                        GM.ud[1] = GM.ud[0];
+                    } else {
+                        for (int i=0; i<2; ++i) {
+                            tmp32s = EM->sw[i*2+0] + EM->sw[i*2+1];
+                            GM.sw[2+i] = (tmp32s>32767)?32767:((tmp32s<-32768)?-32768:tmp32s);
+                        }
+                    }
+                    break;
                 case 0x04:  /* PMADDUBSW Gm,Em */
                     nextop = F8;
                     GET_EM;
                     for (int i=0; i<4; ++i) {
                         tmp32s = (int32_t)(GM.ub[i*2+0])*EM->sb[i*2+0] + (int32_t)(GM.ub[i*2+1])*EM->sb[i*2+1];
                         GM.sw[i] = (tmp32s>32767)?32767:((tmp32s<-32768)?-32768:tmp32s);
+                    }
+                    break;
+                case 0x05:  /* PHSUBW Gm, Em */
+                    nextop = F8;
+                    GET_EM;
+                    for (int i=0; i<2; ++i)
+                        GM.sw[i] = GM.sw[i*2+0]-GM.sw[i*2+1];
+                    if(&GM == EM) {
+                        GM.ud[1] = GM.ud[0];
+                    } else {
+                        for (int i=0; i<2; ++i)
+                            GM.sw[2+i] = EM->sw[i*2+0] - EM->sw[i*2+1];
+                    }
+                    break;
+                case 0x06:  /* PHSUBD Gm, Em */
+                    nextop = F8;
+                    GET_EM;
+                    GM.sd[0] = GM.sd[0]-GM.sd[1];
+                    if(&GM == EM)
+                        GM.ud[1] = GM.ud[0];
+                    else
+                        GM.sd[1] = EM->sd[0] - EM->sd[1];
+                    break;
+                case 0x07:  /* PHSUBSW Gm, Em */
+                    nextop = F8;
+                    GET_EM;
+                    for (int i=0; i<2; ++i) {
+                        tmp32s = GM.sw[i*2+0]-GM.sw[i*2+1];
+                        GM.sw[i] = (tmp32s>32767)?32767:((tmp32s<-32768)?-32768:tmp32s);
+                    }
+                    if(&GM == EM) {
+                        GM.ud[1] = GM.ud[0];
+                    } else {
+                        for (int i=0; i<2; ++i) {
+                            tmp32s = EM->sw[i*2+0] - EM->sw[i*2+1];
+                            GM.sw[2+i] = (tmp32s>32767)?32767:((tmp32s<-32768)?-32768:tmp32s);
+                        }
+                    }
+                    break;
+                case 0x08:  /* PSIGNB Gm, Em */
+                    nextop = F8;
+                    GET_EM;
+                    for (int i=0; i<8; ++i) {
+                        if (EM->sb[i] < 0) {
+                            GM.sb[i] = -GM.sb[i];
+                        } else if (EM->sb[i] == 0) {
+                            GM.sb[i] = 0;
+                        }
                     }
                     break;
                 case 0x09:  /* PSIGNW Gm, Em */
